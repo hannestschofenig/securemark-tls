@@ -1,0 +1,70 @@
+# SecureMark-TLS Sources (with PSA Crypto API build)
+set(sectls_src_psa
+	../../profile/ee_aes.c
+	../../profile/ee_ecdsa.c
+	../../profile/ee_variations.c
+	../../profile/ee_ecdh.c
+	../../profile/ee_profile.c
+	../../profile/ee_sha.c
+	profile/th_api/th_aes.c
+	profile/th_api/th_util.c
+	profile/th_api/th_ecdh.c
+	profile/th_api/th_ecdsa.c
+	profile/th_api/th_sha.c
+	../../monitor/ee_main.c
+	../../monitor/th_api/th_lib.c
+	../../monitor/th_api/th_libc.c
+	main.c
+)
+
+# SecureMark-TLS Sources (with redistributed Mbed TLS library)
+set(sectls_src
+	../../profile/ee_aes.c
+	../../profile/ee_ecdsa.c
+	../../profile/ee_variations.c
+	../../profile/ee_ecdh.c
+	../../profile/ee_profile.c
+	../../profile/ee_sha.c
+	profile/th_api/th_aes.c
+	profile/th_api/redist/mbedtls/aes.c
+	profile/th_api/redist/mbedtls/ecdh.c
+	profile/th_api/redist/mbedtls/cipher_wrap.c
+	profile/th_api/redist/mbedtls/hmac_drbg.c
+	profile/th_api/redist/mbedtls/asn1parse.c
+	profile/th_api/redist/mbedtls/asn1write.c
+	profile/th_api/redist/mbedtls/ccm.c
+	profile/th_api/redist/mbedtls/bignum.c
+	profile/th_api/redist/mbedtls/md_wrap.c
+	profile/th_api/redist/mbedtls/ecp.c
+	profile/th_api/redist/mbedtls/sha256.c
+	profile/th_api/redist/mbedtls/ecp_curves.c
+	profile/th_api/redist/mbedtls/md.c
+	profile/th_api/redist/mbedtls/cipher.c
+	profile/th_api/redist/mbedtls/ecdsa.c
+	profile/th_api/th_util.c
+	profile/th_api/th_ecdh.c
+	profile/th_api/th_ecdsa.c
+	profile/th_api/th_sha.c
+	../../monitor/ee_main.c
+	../../monitor/th_api/th_lib.c
+	../../monitor/th_api/th_libc.c
+	main.c
+)
+
+# SecureMark-TLS Sources (without main.c)
+set(sectls_src_no_main
+	../../profile/ee_aes.c
+	../../profile/ee_ecdsa.c
+	../../profile/ee_variations.c
+	../../profile/ee_ecdh.c
+	../../profile/ee_profile.c
+	../../profile/ee_sha.c
+	../../profile/th_api/th_aes.c
+	../../profile/th_api/th_sha.c
+	../../profile/th_api/th_util.c
+	../../profile/th_api/th_ecdh.c
+	../../profile/th_api/th_ecdsa.c
+	../../monitor/ee_main.c
+	../../monitor/th_api/th_lib.c
+	../../monitor/th_api/th_libc.c
+)
