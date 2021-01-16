@@ -8,7 +8,7 @@ project(sec-tls
 	VERSION 1.0.2)
 
 option(SELFHOSTED "Set to '1' to build self-hosted binary, '0' by default makes a library" 0)
-option(PSA_CRYPTO "Set to '1' to build benchmark with the PSA Crypto API, '0' by default uses the legacy API" 0)
+option(PSA_CRYPTO "Set to '1' to build benchmark with the PSA Crypto API; default is '0'" 0)
 
 include(CMakeFiles.txt)
 include(CheckIncludeFile)
@@ -64,6 +64,8 @@ if (SELFHOSTED)
 
 		add_definitions(-DEE_CFG_SELFHOSTED=1)
 		add_definitions(-DEE_CFG_QUIET=1)
+		add_definitions(-DCRYPTO_PSA=1)
+		
 		add_executable(sec-tls ${sectls_src_psa})
 
 		target_link_libraries(sec-tls ${MBEDTLS_LIBRARIES})
@@ -73,6 +75,8 @@ if (SELFHOSTED)
 		add_definitions(-DMBEDTLS_CONFIG_FILE="../../config/config-non-psa.h")
 		add_definitions(-DEE_CFG_SELFHOSTED=1)
 		add_definitions(-DEE_CFG_QUIET=1)
+		add_definitions(-DCRYPTO_MBEDTLS=1)
+		
 		add_executable(sec-tls ${sectls_src})
 	endif()		
 

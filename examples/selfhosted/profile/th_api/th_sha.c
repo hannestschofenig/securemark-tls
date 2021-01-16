@@ -10,8 +10,14 @@
  * effective EEMBC Benchmark License Agreement, you must discontinue use.
  */
 
+#if defined(CRYPTO_MBEDTLS)
 #include "mbedtls/config.h"
 #include "mbedtls/sha256.h"
+#endif /* CRYPTO_MBEDTLS */
+
+ #if defined(CRYPTO_PSA)
+#include "psa/crypto.h"
+ #endif /* CRYPTO_PSA */
 
 #include "ee_sha.h"
 
@@ -24,8 +30,17 @@ ee_status_t
 th_sha256_create(
 	void **context
 ) {
+#if defined(CRYPTO_MBEDTLS)
 	mbedtls_sha256_context *sha256;
 	sha256 = th_malloc(sizeof(mbedtls_sha256_context));
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_hash_operation_t *sha256;
+    sha256 = th_malloc(sizeof(psa_hash_operation_t));
+    memset(sha256, 0, sizeof(psa_hash_operation_t));
+ #endif /* CRYPTO_PSA */
+
 	if (! sha256) {
 		th_printf("e-sha256-?malloc\r\n");
 		return EE_STATUS_ERROR;
@@ -43,8 +58,17 @@ ee_status_t
 th_sha256_init(
 	void *context
 ) {
+#if defined(CRYPTO_MBEDTLS)
 	mbedtls_sha256_init((mbedtls_sha256_context *)context);
 	mbedtls_sha256_starts((mbedtls_sha256_context *)context, 0 /* 0 for SHA-256 */);
+#endif /* CRYPTO_MBEDTLS */
+
+ #if defined(CRYPTO_PSA)
+    psa_crypto_init( );
+
+    psa_hash_setup( (psa_hash_operation_t *) context, PSA_ALG_SHA_256 );
+#endif /* CRYPTO_PSA */
+
 	return EE_STATUS_OK;
 }
 
@@ -59,7 +83,13 @@ th_sha256_process(
 	const unsigned char *in,
 	unsigned int size
 ) {
+#if defined(CRYPTO_MBEDTLS)
 	mbedtls_sha256_update((mbedtls_sha256_context *)context, in, size);
+#endif /* CRYPTO_MBEDTLS */
+
+ #if defined(CRYPTO_PSA)
+    psa_hash_update( (psa_hash_operation_t *) context, in, size );
+#endif /* CRYPTO_PSA */
 	return EE_STATUS_OK;
 }
 
@@ -73,7 +103,16 @@ th_sha256_done(
 	void *context,
 	unsigned char *result
 ) {
+#if defined(CRYPTO_MBEDTLS)
 	mbedtls_sha256_finish((mbedtls_sha256_context *)context, result);
+#endif /* CRYPTO_MBEDTLS */
+
+ #if defined(CRYPTO_PSA)
+    size_t hash_size;
+
+    psa_hash_finish( (psa_hash_operation_t *) context, result, 32, &hash_size );
+#endif /* CRYPTO_PSA */
+
 	return EE_STATUS_OK;
 }
 
