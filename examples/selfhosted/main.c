@@ -32,8 +32,17 @@
 #include "ee_ecdsa.h"
 #include "ee_sha.h"
 #include "ee_variations.h"
+
+#include <inttypes.h>
+
 // There are several POSIX assumptions in this implementation.
+#ifdef __linux__
 #include <time.h>
+#elif _WIN32
+#include <sys\timeb.h>
+#else
+#warning "Operating system not recognized"
+#endif
 #include <assert.h>
 
 // Longest time to run each primitive during self-tuning
@@ -43,6 +52,8 @@
 #define MIN_ITER 10u
 // Stored timestamps (a single primitive may generate multiple stamps)
 #define MAX_TIMESTAMPS 64u
+
+#define HASH_SIZE 32 //length of SHA256 hash in bytes
 
 // All wrapper functions fit this prototype (n=dataset octets, i=iterations)
 typedef uint16_t wrapper_function_t(unsigned int n, unsigned int i);
@@ -88,6 +99,7 @@ typedef struct
  * Q/d ECC keys will break the CRC.
  */
 // clang-format off
+
 static task_entry_t g_task[] =
 {
     { wrap_aes_ecb_encrypt,  144, 0.0f,  1.0f, 0x0, 0xc7b0 }, /*  0 */
@@ -103,7 +115,6 @@ static task_entry_t g_task[] =
     { wrap_sha256         ,  384, 0.0f,  1.0f, 0x0, 0x1d3f }, /* 10 */
     { wrap_variation_001  ,    0, 0.0f,  3.0f, 0x0, 0x0000 }, /* 11 */
     { wrap_sha256         , 4224, 0.0f,  4.0f, 0x0, 0x9284 }, /* 12 */
-    { wrap_aes_ecb_encrypt, 2048, 0.0f, 10.0f, 0x0, 0x989e }, /* 13 */
 };
 // clang-format on
 static const size_t g_numtasks = sizeof(g_task) / sizeof(task_entry_t);
@@ -134,8 +145,10 @@ void          ee_srand(unsigned char);
  */
 // clang-format off
 // Peer public key, 'Q'
-static unsigned char g_ecc_peer_public_key[] =
+static uint8_t g_ecc_peer_public_key[] =
 {
+// uncompressed point format
+0x04,
 // Q.X
 0x01,0x2a,0x23,0x0e,0xbe,0xfc,0x7e,0x6d,0xc6,0xe2,0x8f,0x4f,0xc3,0xba,0x66,0x0f,
 0xba,0x40,0xef,0xa7,0x7c,0xd9,0xf3,0x0d,0xdc,0xc7,0x2c,0x57,0x2f,0x67,0xfa,0x0f,
@@ -143,8 +156,9 @@ static unsigned char g_ecc_peer_public_key[] =
 0xfc,0x58,0xaf,0x84,0xac,0xdc,0x46,0xfc,0x05,0xf9,0xba,0x84,0xfb,0x60,0xb7,0xb5,
 0xd8,0x9b,0xb2,0xa6,0x76,0x1f,0xce,0x8e,0x06,0x73,0x28,0x7e,0x6d,0x7b,0xbb,0x46
 };
+
 // Private key, 'd'
-static unsigned char g_ecc_private_key[] =
+static uint8_t g_ecc_private_key[] =
 {
 0x6e,0x24,0x26,0x96,0x5f,0x12,0x90,0x18,0xbe,0x06,0xf7,0x09,0x2c,0xdf,0x83,0x22,
 0x33,0x8e,0x3e,0x65,0x74,0x61,0x61,0x03,0x6d,0x61,0x55,0xf9,0xcb,0x14,0x44,0x70
@@ -157,11 +171,11 @@ static unsigned char g_ecc_private_key[] =
  * The framework expects an external agent to monitor the timestamp message.
  * Since there is no external agent, create a local stack of stamps.
  */
-static unsigned long g_timestamps[MAX_TIMESTAMPS];
-static size_t        g_stamp_idx = 0;
+static uint64_t g_timestamps[MAX_TIMESTAMPS];
+static size_t   g_stamp_idx = 0;
 
 void
-push_timestamp(unsigned long us)
+push_timestamp(uint64_t us)
 {
     assert(g_stamp_idx < MAX_TIMESTAMPS);
     g_timestamps[g_stamp_idx] = us;
@@ -173,7 +187,7 @@ clear_timestamps(void)
 {
     g_stamp_idx = 0;
     /*@-redef*/ /*@-retvalother*/
-    th_memset(g_timestamps, MAX_TIMESTAMPS, sizeof(unsigned long));
+    th_memset(g_timestamps, 0, MAX_TIMESTAMPS * sizeof(uint64_t));
 }
 
 /**
@@ -193,9 +207,18 @@ void
 th_timestamp(void)
 {
     // --- BEGIN USER CODE 1
+#ifdef __linux__ 
     struct timespec t;
     /*@-unrecog*/
     clock_gettime(CLOCK_REALTIME, &t);
+#elif _WIN32
+    struct timeb t;
+    uint64_t elapsedMicroSeconds;
+    ftime(&t);
+#else
+#warning "Operating system not recognized"
+#endif
+
     // --- END USER CODE 1
     if (g_verify_mode)
     {
@@ -204,12 +227,19 @@ th_timestamp(void)
     else
     {
         // --- BEGIN USER CODE 2
+#ifdef __linux__
         const unsigned long NSEC_PER_SEC      = 1000000000UL;
         const unsigned long TIMER_RES_DIVIDER = 1000UL;
-        unsigned long       elapsedMicroSeconds;
+        uint64_t elapsedMicroSeconds;
         /*@-usedef*/
         elapsedMicroSeconds = t.tv_sec * (NSEC_PER_SEC / TIMER_RES_DIVIDER)
                               + t.tv_nsec / TIMER_RES_DIVIDER;
+#elif _WIN32
+        elapsedMicroSeconds = ( (uint64_t) t.time ) * 1000 * 1000 + ( (uint64_t) t.millitm ) * 1000;
+#else
+#warning "Operating system not recognized"
+#endif
+
         // --- END USER CODE 2
         th_printf(EE_MSG_TIMESTAMP, elapsedMicroSeconds);
         push_timestamp(elapsedMicroSeconds);
@@ -335,9 +365,10 @@ wrap_aes_ccm_encrypt(unsigned int n, unsigned int i)
     unsigned int   x;
     uint16_t       crc;
 
-    buflen = AES_KEYSIZE + AES_IVSIZE + n + AES_TAGSIZE + n;
+    buflen = AES_KEYSIZE + AES_IVSIZE + n + AES_TAGSIZE + n + 100;
     buffer = (unsigned char *)th_malloc(buflen);
     assert(buffer != NULL);
+    memset(buffer,0,buflen);
     key = buffer;
     iv  = key + AES_KEYSIZE;
     in  = iv + AES_IVSIZE;
@@ -379,7 +410,7 @@ wrap_aes_ccm_decrypt(unsigned int n, unsigned int i)
     unsigned int   x;
     uint16_t       crc;
 
-    buflen = AES_KEYSIZE + AES_IVSIZE + n + AES_TAGSIZE + n;
+    buflen = AES_KEYSIZE + AES_IVSIZE + n + AES_TAGSIZE + n + 100;
     buffer = (unsigned char *)th_malloc(buflen);
     assert(buffer != NULL);
     key = buffer;
@@ -429,6 +460,7 @@ wrap_aes_ecb_encrypt(unsigned int n, unsigned int i)
     buflen = AES_KEYSIZE + n + n;
     buffer = (unsigned char *)th_malloc(buflen);
     assert(buffer != NULL);
+    memset(buffer,0,buflen);
     // Assign the helper points to the region of the buffer
     key = buffer;
     in  = key + AES_KEYSIZE;
@@ -527,22 +559,22 @@ wrap_ecdsa_sign(unsigned int n, unsigned int i)
      * SHA256     32 (SHA256 Digest to sign)
      */
     unsigned char *privkey;
-    unsigned char  hash[HMAC_SIZE];
+    unsigned char  hash[HASH_SIZE];
     unsigned char *sig;
     unsigned int   slen;
     unsigned int   x;
     uint16_t       crc;
 
-    for (x = 0; x < HMAC_SIZE; ++x)
+    for (x = 0; x < HASH_SIZE; ++x)
     {
         hash[x] = ee_rand();
     }
-    slen = 256; // Note: this is also an input to ee_ecdsa_sign
-    sig  = (unsigned char *)th_malloc(slen); // should be 71, 72 B
+    slen = 0x40; // Note: this is also an input to ee_ecdsa_sign
+    sig  = (unsigned char *)th_malloc(slen);
     assert(sig != NULL);
     privkey = g_ecc_private_key;
     g_verify_mode = false;
-    ee_ecdsa_sign(hash, HMAC_SIZE, sig, &slen, privkey, ECC_DSIZE, i);
+    ee_ecdsa_sign(hash, HASH_SIZE, sig, &slen, privkey, ECC_DSIZE, i);
     for (crc = 0, x = 0; x < slen; ++x)
     {
         crc = crcu16(crc, (uint8_t)sig[x]);
@@ -564,7 +596,7 @@ wrap_ecdsa_verify(unsigned int n, unsigned int i)
      * SHA256     32 (SHA256 Digest to sign)
      */
     unsigned char *privkey;
-    unsigned char  hash[HMAC_SIZE];
+    unsigned char  hash[HASH_SIZE];
     unsigned char *sig;
     unsigned int   slen;
     unsigned int   x;
@@ -572,21 +604,21 @@ wrap_ecdsa_verify(unsigned int n, unsigned int i)
 
     n = 0; // unused
 
-    for (x = 0; x < HMAC_SIZE; ++x)
+    for (x = 0; x < HASH_SIZE; ++x)
     {
         hash[x] = ee_rand();
     }
-    slen = 256; // Note: this is also an input to ee_ecdsa_sign
-    sig  = (unsigned char *)th_malloc(slen); // should be 71, 72 B
+    slen = 0x40; // Note: this is also an input to ee_ecdsa_sign
+    sig  = (unsigned char *)th_malloc(slen);
     assert(sig != NULL);
     privkey = g_ecc_private_key;
     // Do NOT record timestamps during encrypt! (see th_timestamp())
     g_verify_mode = true;
     // Only need one iteration to create the signature; save time!
-    ee_ecdsa_sign(hash, HMAC_SIZE, sig, &slen, privkey, ECC_DSIZE, 1);
+    ee_ecdsa_sign(hash, HASH_SIZE, sig, &slen, privkey, ECC_DSIZE, 1);
     // Turn on recording timestamps
     g_verify_mode = false;
-    ee_ecdsa_verify(hash, HMAC_SIZE, sig, slen, privkey, ECC_DSIZE, i);
+    ee_ecdsa_verify(hash, HASH_SIZE, sig, slen, privkey, ECC_DSIZE, i);
     for (crc = 0, x = 0; x < slen; ++x)
     {
         crc = crcu16(crc, (uint8_t)sig[x]);
@@ -621,8 +653,9 @@ size_t
 tune_iterations(unsigned int n, wrapper_function_t *func)
 {
     size_t        iter;
+    size_t        iteration_count=0;
     size_t        total_iter;
-    unsigned long total_us;
+    uint64_t total_us;
     float         ipus;
     float         delta;
 
@@ -638,7 +671,7 @@ tune_iterations(unsigned int n, wrapper_function_t *func)
         if (total_us > 0)
         {
             ipus = (float)total_iter / total_us;
-            delta = MIN_RUNTIME_USEC - total_us;
+            delta = (float) MIN_RUNTIME_USEC - total_us;
             iter = (size_t)(ipus * delta);
             iter = iter == 0 ? 1 : iter;
         }
@@ -646,6 +679,7 @@ tune_iterations(unsigned int n, wrapper_function_t *func)
         {
             iter *= 2;
         }
+        iteration_count+=1; 
     }
     return total_iter;
 }

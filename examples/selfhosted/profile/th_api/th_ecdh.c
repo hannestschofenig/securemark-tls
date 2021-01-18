@@ -10,9 +10,31 @@
  * effective EEMBC Benchmark License Agreement, you must discontinue use.
  */
 
+#if defined(CRYPTO_MBEDTLS)
 #include "mbedtls/config.h"
 #include "mbedtls/ecdh.h"
 #include "mbedtls/ecp.h" 
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+#include "mbedtls/config.h"
+#include "psa/crypto.h"
+
+#if !defined(MBEDTLS_PSA_CRYPTO_C) || !defined(MBEDTLS_ECP_C) || !defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
+#error "Necessary PSA functionality not defined!"
+#endif
+
+
+struct psa_ke_structure
+{
+    psa_key_attributes_t *client_attributes;  // own key attributes
+    psa_key_handle_t client_key_handle;       // own key handle
+    unsigned char *p_public;                  // public key of peer
+    unsigned int publen;                      // peer public key length
+};
+
+typedef struct psa_ke_structure psa_ke_structure;
+#endif /* CRYPTO_PSA */
 
 #include "ee_ecdh.h"
 
@@ -26,6 +48,7 @@ th_ecdh_create(
     void **p_context // output: portable context
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_ecdh_context *p_ecdh;
 
     p_ecdh = (mbedtls_ecdh_context *)th_malloc(sizeof(mbedtls_ecdh_context)); 
@@ -34,9 +57,31 @@ th_ecdh_create(
         th_printf("e-[malloc() fail in th_ecdh_create\r\n");
         return EE_STATUS_ERROR;
     }
+
     *p_context = (void *)p_ecdh;
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_ke_structure *context;
+
+    context = 
+       (psa_ke_structure *)th_malloc(sizeof(psa_ke_structure));
+    if (context == NULL)
+    {
+        th_printf("e-[malloc() fail in th_ecdh_create\r\n");
+        return EE_STATUS_ERROR;
+    }
+    memset(context,0,sizeof(psa_ke_structure));
+
+    context->client_attributes = th_malloc(sizeof(psa_key_attributes_t));
+    memset(context->client_attributes, 0, sizeof(psa_key_attributes_t));
+
+    *p_context = context;
+#endif /* CRYPTO_PSA */
     return EE_STATUS_OK;
 }
+
+#if defined(CRYPTO_MBEDTLS)
 
 /**
  * Load a 64-byte public key from a peer, big-endian; confim is on curve
@@ -133,6 +178,7 @@ load_private_key(
 
     return EE_STATUS_OK;
 }
+#endif /* CRYPTO_MBEDTLS */
 
 /**
  * Initialize to a group (must be in the EE_ enum)
@@ -149,8 +195,10 @@ th_ecdh_init(
     unsigned int    publen     // input: peer public key length in bytes
 )
 {
-    mbedtls_ecdh_context *p_ecdh;
+#if defined(CRYPTO_MBEDTLS)
     int                   ret;
+
+    mbedtls_ecdh_context *p_ecdh;
     
     p_ecdh = (mbedtls_ecdh_context *)p_context;
     switch (group)
@@ -168,7 +216,7 @@ th_ecdh_init(
             th_printf("e-[Invalid ECC curve in th_ecdh_init]\r\n");
             return EE_STATUS_ERROR;
     }
-    
+
     ret = load_public_peer_key(p_context, p_public, publen);
     if (ret != EE_STATUS_OK)
     {
@@ -182,6 +230,50 @@ th_ecdh_init(
         th_printf("e-[load_private_key: -0x%04x]\r\n", -ret);
         return EE_STATUS_ERROR;
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_ke_structure *context = (psa_ke_structure *) p_context;
+    psa_status_t status;
+
+    status = psa_crypto_init( );
+    if( status != PSA_SUCCESS )
+    {
+        th_printf("e-[psa_crypto_init: -0x%04x]\r\n", -status);
+        return EE_STATUS_ERROR;
+    }
+
+    switch (group)
+    { 
+        case EE_P256R1:
+            psa_set_key_usage_flags( context->client_attributes, PSA_KEY_USAGE_DERIVE | PSA_KEY_USAGE_EXPORT );
+            psa_set_key_algorithm( context->client_attributes, PSA_ALG_ECDH );
+            psa_set_key_type( context->client_attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1) );
+
+            break; 
+        default:
+            th_printf("e-[Invalid ECC curve in th_ecdh_init]\r\n");
+            return EE_STATUS_ERROR;
+    }
+
+    // Copy public key of peer into internal context structure
+    context->p_public = th_malloc(publen);
+    if (context->p_public == NULL)
+    {
+        th_printf("e-[malloc() fail in th_ecdh_init\r\n");
+        return EE_STATUS_ERROR;
+    }
+    memcpy(context->p_public, p_public, publen);
+    context->publen = publen;
+
+    // Import own private key
+    status = psa_import_key(context->client_attributes, p_private, prilen, &context->client_key_handle );
+    if( status != PSA_SUCCESS )
+    {
+        th_printf("e-[psa_import_key (client): -0x%04x]\r\n", -status);
+        return EE_STATUS_ERROR;
+    }
+#endif /* CRYPTO_PSA */
 
     return EE_STATUS_OK;
 }
@@ -198,8 +290,9 @@ th_ecdh_calc_secret(
     unsigned int   slen        // input: length of shared buffer in bytes
 )
 {
-    mbedtls_ecdh_context *p_ecdh;
     size_t                olen;
+#if defined(CRYPTO_MBEDTLS)
+    mbedtls_ecdh_context *p_ecdh;
     int                   ret;
     
     p_ecdh = (mbedtls_ecdh_context*) p_context; 
@@ -219,6 +312,25 @@ th_ecdh_calc_secret(
         th_printf("e-[mbedtls_ecdh_calc_secret: -0x%04x]\r\n", -ret);
         return EE_STATUS_ERROR; 
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_ke_structure *context = (psa_ke_structure *) p_context;
+
+    /* Produce ECDHE derived key */
+    status = psa_raw_key_agreement( PSA_ALG_ECDH,                       // algorithm
+                                    context->client_key_handle,         // client secret key
+                                    context->p_public, context->publen, // server public key
+                                    p_secret, slen,                     // buffer to store derived key
+                                    &olen );
+    if( status != PSA_SUCCESS )
+    {
+        printf( "psa_raw_key_agreement failed\n" );
+        return( EXIT_FAILURE );
+    }
+#endif /* CRYPTO_PSA */
+
     /**
      * Must be the same size as the curve size; for example, if the curve is 
      * secp256r1, secret must be 32 bytes long.
@@ -241,6 +353,20 @@ th_ecdh_destroy(
     void *p_context // input: portable context
 )
 { 
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_ecdh_free((mbedtls_ecdh_context*)p_context);
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_ke_structure *context = (psa_ke_structure *) p_context;
+
+    th_free(context->client_attributes);
+    th_free(context->p_public);
+
+    psa_destroy_key( context->client_key_handle );
+
+    mbedtls_psa_crypto_free( );
+#endif /* CRYPTO_PSA */
+
     th_free(p_context);
 }

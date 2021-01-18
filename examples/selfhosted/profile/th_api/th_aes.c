@@ -10,9 +10,24 @@
  * effective EEMBC Benchmark License Agreement, you must discontinue use.
  */
 
+#if defined(CRYPTO_MBEDTLS)
 #include "mbedtls/config.h"
 #include "mbedtls/aes.h"
 #include "mbedtls/ccm.h"
+#endif /* CRYPTO_MBEDTLS */
+
+ #if defined(CRYPTO_PSA)
+#include "psa/crypto.h"
+
+struct psa_encryption_structure
+{
+    psa_key_attributes_t *attributes;
+    psa_key_handle_t key_handle;
+    psa_cipher_operation_t *operation;
+};
+
+typedef struct psa_encryption_structure  psa_encryption_structure;
+ #endif /* CRYPTO_PSA */
 
 #include "ee_aes.h"
 
@@ -24,18 +39,62 @@
 ee_status_t
 th_aes128_create(
     void              **p_context,  // output: portable context
-    aes_cipher_mode_t   mode        // input: AES_ENC or AES_DEC
+    aes_cipher_mode_t   mode        // input: AES_ECB or AES_CCM
 )
 {
+#if defined(CRYPTO_PSA)
+    psa_encryption_structure *context;
+#endif /* CRYPTO_PSA */
+
     if (mode == AES_ECB)
     {
+#if defined(CRYPTO_MBEDTLS)
         *p_context = 
             (mbedtls_aes_context *)th_malloc(sizeof(mbedtls_aes_context));
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+        context = 
+            (psa_encryption_structure *)th_malloc(sizeof(psa_encryption_structure));
+
+        context->attributes = th_malloc(sizeof(psa_key_attributes_t));
+        memset(context->attributes, 0, sizeof(psa_key_attributes_t));
+
+        if (mode == AES_ECB)
+        {
+            context->operation = th_malloc(sizeof(psa_cipher_operation_t));
+            memset(context->operation, 0, sizeof(psa_cipher_operation_t));
+        }
+        psa_set_key_usage_flags( context->attributes,
+                                 PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT );
+        psa_set_key_algorithm( context->attributes, PSA_ALG_ECB_NO_PADDING );
+        psa_set_key_type( context->attributes, PSA_KEY_TYPE_AES );
+
+        *p_context = context;
+#endif /* CRYPTO_PSA */
+
     }
     else if (mode == AES_CCM)
     {
+#if defined(CRYPTO_MBEDTLS)
         *p_context = 
             (mbedtls_ccm_context *)th_malloc(sizeof(mbedtls_ccm_context));
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+        context = 
+            (psa_encryption_structure *)th_malloc(sizeof(psa_encryption_structure));
+
+        context->attributes = th_malloc(sizeof(psa_key_attributes_t));
+        memset(context->attributes, 0, sizeof(psa_key_attributes_t));
+
+        psa_set_key_usage_flags( context->attributes,
+                                    PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT );
+        psa_set_key_algorithm( context->attributes, PSA_ALG_CCM );
+        psa_set_key_type( context->attributes, PSA_KEY_TYPE_AES );
+
+        *p_context = context;
+#endif /* CRYPTO_PSA */
     }
     else
     {
@@ -67,13 +126,14 @@ th_aes128_init(
     aes_cipher_mode_t    mode       // input: AES_ECB or AES_CCM
 )
 {
-    int                  ret;
     int                  keybits;
+#if defined(CRYPTO_MBEDTLS)
+    int                  ret;
     mbedtls_aes_context *p_ecb;
     mbedtls_ccm_context *p_ccm;
 
     keybits = keylen    * 8;
-    
+
     if (mode == AES_ECB)
     { 
         p_ecb = (mbedtls_aes_context *)p_context;
@@ -113,6 +173,39 @@ th_aes128_init(
         th_printf("e-[Unknown mode in th_aes128_init\r\n");
         return EE_STATUS_ERROR;
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+
+    keybits = keylen * 8;
+
+    psa_crypto_init( );
+
+    psa_set_key_bits( context->attributes, keybits );
+
+    status = psa_import_key( context->attributes, p_key, keylen, &context->key_handle );
+    if (status != PSA_SUCCESS)
+    {
+        th_printf("e-[Failed to set CCM key: -0x%04x]\r\n", -status);
+        return EE_STATUS_ERROR;
+    }
+
+    if (mode == AES_ECB)
+    {
+        if (func == AES_ENC)
+            status = psa_cipher_encrypt_setup( context->operation, context->key_handle, PSA_ALG_ECB_NO_PADDING );
+        else // AES_DEC
+            status = psa_cipher_decrypt_setup( context->operation, context->key_handle, PSA_ALG_ECB_NO_PADDING );
+
+        if (status != PSA_SUCCESS)
+        {
+            th_printf("e-[psa_cipher_encrypt_setup: -0x%04x]\r\n", -status);
+            return EE_STATUS_ERROR;
+        }
+    }
+#endif /* CRYPTO_PSA */
 
     return EE_STATUS_OK;
 }
@@ -129,9 +222,30 @@ th_aes128_deinit(
     aes_cipher_mode_t  mode         // input: AES_ECB or AES_CCM
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     if (mode == AES_CCM) {
         mbedtls_ccm_free((mbedtls_ccm_context *)p_context);
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+    size_t res_len;
+    psa_status_t status;
+
+    if (mode == AES_ECB)
+    {
+        status = psa_cipher_finish( context->operation,
+                                  NULL,
+                                  AES_BLOCKLEN,
+                                  &res_len );
+
+        psa_cipher_abort( context->operation );
+    }
+
+    psa_destroy_key( context->key_handle );
+
+#endif /* CRYPTO_PSA */
 }
 
 /**
@@ -146,7 +260,26 @@ th_aes128_ecb_encrypt(
     unsigned char       *p_ct       // output: ciphertext (AES_BLOCKSIZE bytes)
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_aes_encrypt((mbedtls_aes_context *)p_context, p_pt, p_ct);
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+    size_t res_len;
+
+    status = psa_cipher_update( context->operation,
+                                p_pt, AES_BLOCKLEN,
+                                p_ct, AES_BLOCKLEN,
+                                &res_len );
+
+    if( status != PSA_SUCCESS )
+    {
+        return( EE_STATUS_ERROR );
+    }
+#endif /* CRYPTO_PSA */
+
     return EE_STATUS_OK;
 }
 
@@ -162,7 +295,25 @@ th_aes128_ecb_decrypt(
     unsigned char       *p_pt       // output: plaintext (AES_BLOCKSIZE bytes)
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_aes_decrypt((mbedtls_aes_context *)p_context, p_ct, p_pt);
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+    size_t res_len;
+
+    status = psa_cipher_update( context->operation,
+                                p_ct, AES_BLOCKLEN,
+                                p_pt, AES_BLOCKLEN,
+                                &res_len );
+
+    if( status != PSA_SUCCESS )
+    {
+        return( EE_STATUS_ERROR );
+    }
+#endif /* CRYPTO_PSA */
 
     return EE_STATUS_OK;
 }
@@ -184,6 +335,7 @@ th_aes128_ccm_encrypt(
     unsigned int         ivlen      // input: IV length in bytes
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_ccm_context *p_ctx = (mbedtls_ccm_context *)p_context;
     int                  ret;
 
@@ -205,6 +357,26 @@ th_aes128_ccm_encrypt(
         th_printf("e-[Failed perform CCM encrypt: -0x%04x]\r\n", -ret);
         return EE_STATUS_ERROR;
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+    size_t ciphertext_length;
+
+        status = psa_aead_encrypt( context->key_handle,     // key
+                                   PSA_ALG_CCM,              // algorithm
+                                   p_iv, ivlen,              // nonce
+                                   NULL, 0,                  // additional data
+                                   p_pt, ptlen,              // plaintext
+                                   p_ct, ptlen + taglen,     // ciphertext
+                                   &ciphertext_length );     // length of output
+    if( status != PSA_SUCCESS )
+    {
+        th_printf("e-[Failed perform CCM encrypt: -0x%04x]\r\n", -status);
+        return EE_STATUS_ERROR;
+    }
+#endif /* CRYPTO_PSA */
 
     return EE_STATUS_OK;
 }
@@ -226,6 +398,7 @@ th_aes128_ccm_decrypt(
     unsigned int         ivlen      // input: IV length in bytes
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     mbedtls_ccm_context *p_ctx = (mbedtls_ccm_context *)p_context;
     int                  ret;
 
@@ -247,6 +420,26 @@ th_aes128_ccm_decrypt(
         th_printf("e-[Failed perform CCM decrypt: -0x%04x]\r\n", -ret);
         return EE_STATUS_ERROR;
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_status_t status;
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+    size_t plaintext_length;
+
+    status = psa_aead_decrypt( context->key_handle,   // key
+                               PSA_ALG_CCM,            // algorithm
+                               p_iv, ivlen,            // nonce
+                               NULL, 0,                // additional data
+                               p_ct, ctlen,            // ciphertext
+                               p_pt, ctlen,            // plaintext
+                               &plaintext_length );    // length of output
+    if( status != PSA_SUCCESS )
+    {
+        th_printf("e-[Failed perform CCM decrypt: -0x%04x]\r\n", -status);
+        return( EE_STATUS_OK );
+    }
+#endif /* CRYPTO_PSA */
 
     return EE_STATUS_OK;
 }
@@ -262,9 +455,21 @@ th_aes128_destroy(
     aes_cipher_mode_t  mode         // input: AES_ECB or AES_CCM
 )
 {
+#if defined(CRYPTO_MBEDTLS)
     if (mode == AES_CCM)
     {
         mbedtls_ccm_free((mbedtls_ccm_context *)p_context);
     }
+#endif /* CRYPTO_MBEDTLS */
+
+#if defined(CRYPTO_PSA)
+    psa_encryption_structure *context = (psa_encryption_structure *) p_context;
+
+    th_free(context->attributes);
+     if (mode == AES_ECB) th_free(context->operation);
+
+    mbedtls_psa_crypto_free( );
+#endif /* CRYPTO_PSA */
+
     th_free(p_context);
 }

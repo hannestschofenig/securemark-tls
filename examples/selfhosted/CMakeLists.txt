@@ -7,8 +7,8 @@ project(sec-tls
 	LANGUAGES C
 	VERSION 1.0.2)
 
-option(SELFHOSTED "Set to '1' to build self-hosted binary, '0' by default makes a library" 0)
-option(PSA_CRYPTO "Set to '1' to build benchmark with the PSA Crypto API; default is '0'" 0)
+option(SELFHOSTED "Set to '1' to build self-hosted binary, '0' by default makes a library" 1)
+option(PSA_CRYPTO "Set to '1' to build benchmark with the PSA Crypto API; default is '0'" 1)
 
 include(CMakeFiles.txt)
 include(CheckIncludeFile)
@@ -31,7 +31,7 @@ include(cmake/splint.cmake)
 #set(CMAKE_NM ${tools}/bin/arm-none-eabi-nm)
 #set(CMAKE_OBJDUMP ${tools}/bin/arm-none-eabi-objdump)
 
-set(CMAKE_C_FLAGS "-pedantic -Wall -O3")
+#set(CMAKE_C_FLAGS "-pedantic -Wall -O3")
 
 include_directories(../../monitor)
 include_directories(../../monitor/th_api)
@@ -46,6 +46,7 @@ if (SELFHOSTED)
 		option(ENABLE_PROGRAMS "Build mbed TLS programs." OFF)
         option(ENABLE_TESTING "Build mbed TLS tests." OFF)
 		
+		# Enable PSA Crypto in the Mbed TLS Implementation
    	    add_definitions(-DMBEDTLS_PSA_CRYPTO_CONFIG=1)
 #    	add_definitions(-DMBEDTLS_CONFIG_FILE="../../config/config-psa.h")
 
@@ -62,9 +63,10 @@ if (SELFHOSTED)
 		
 		set(MBEDTLS_LIBRARIES "mbedtls" "mbedx509" "mbedcrypto")
 
+        # The following three directives are used in the EEMBC benchmark.
 		add_definitions(-DEE_CFG_SELFHOSTED=1)
 		add_definitions(-DEE_CFG_QUIET=1)
-		add_definitions(-DCRYPTO_PSA=1)
+		add_definitions(-DCRYPTO_PSA=1) 
 		
 		add_executable(sec-tls ${sectls_src_psa})
 
