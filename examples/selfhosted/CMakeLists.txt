@@ -9,6 +9,7 @@ project(sec-tls
 
 option(SELFHOSTED "Set to '1' to build self-hosted binary, '0' by default makes a library" 1)
 option(PSA_CRYPTO "Set to '1' to build benchmark with the PSA Crypto API; default is '0'" 1)
+option(EE_CFG_QUIET "Set to '1' to build benchmark with more debugging info; default is '1'" 1 )
 
 include(CMakeFiles.txt)
 include(CheckIncludeFile)
@@ -63,9 +64,8 @@ if (SELFHOSTED)
 		
 		set(MBEDTLS_LIBRARIES "mbedtls" "mbedx509" "mbedcrypto")
 
-        # The following three directives are used in the EEMBC benchmark.
+        # The following two directives are used in the EEMBC benchmark.
 		add_definitions(-DEE_CFG_SELFHOSTED=1)
-		add_definitions(-DEE_CFG_QUIET=1)
 		add_definitions(-DCRYPTO_PSA=1) 
 		
 		add_executable(sec-tls ${sectls_src_psa})
@@ -74,9 +74,7 @@ if (SELFHOSTED)
 		set_target_properties(sec-tls PROPERTIES INSTALL_RPATH mbedtls)
 	else()
         include_directories(profile/th_api/redist)
-		add_definitions(-DMBEDTLS_CONFIG_FILE="../../config/config-non-psa.h")
-		add_definitions(-DEE_CFG_SELFHOSTED=1)
-		add_definitions(-DEE_CFG_QUIET=1)
+#		add_definitions(-DMBEDTLS_CONFIG_FILE="../../config/config-non-psa.h")
 		add_definitions(-DCRYPTO_MBEDTLS=1)
 		
 		add_executable(sec-tls ${sectls_src})
