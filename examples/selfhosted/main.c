@@ -102,12 +102,13 @@ typedef struct
 
 static task_entry_t g_task[] =
 {
+    { wrap_ecdh           ,    0, 0.0f,  1.0f, 0x0, 0xb659 }, /*  5 */
     { wrap_aes_ecb_encrypt,  144, 0.0f,  1.0f, 0x0, 0xc7b0 }, /*  0 */
     { wrap_aes_ecb_encrypt,  224, 0.0f,  1.0f, 0x0, 0x5481 }, /*  1 */
     { wrap_aes_ecb_encrypt,  320, 0.0f,  1.0f, 0x0, 0x998a }, /*  2 */
     { wrap_aes_ccm_encrypt,   52, 0.0f,  1.0f, 0x0, 0xd82d }, /*  3 */
     { wrap_aes_ccm_decrypt,  168, 0.0f,  1.0f, 0x0, 0x005b }, /*  4 */
-    { wrap_ecdh           ,    0, 0.0f,  1.0f, 0x0, 0xb659 }, /*  5 */
+
     { wrap_ecdsa_sign     ,    0, 0.0f,  1.0f, 0x0, 0x3a47 }, /*  6 */
     { wrap_ecdsa_verify   ,    0, 0.0f,  2.0f, 0x0, 0x3a47 }, /*  7 */
     { wrap_sha256         ,   23, 0.0f,  3.0f, 0x0, 0x2151 }, /*  8 */

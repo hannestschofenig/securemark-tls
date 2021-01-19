@@ -22,7 +22,7 @@
 #define EE_PRINTMEM_DEFAULT_HEADER "m-hexdump-";
 
 // What mode we are currently in (perf or verf) [see monitor/th_api/th_lib.c]
-bool g_verify_mode = false;
+bool g_verify_mode = 0; // false
 
 // These are used for our PRNG ee_rand()
 static unsigned char g_prn = 0x7f;
@@ -557,8 +557,8 @@ ee_bench_parse(char *p_command)
         unsigned char *p_sig;
         unsigned int   slen;
 
-        slen = 256; // Note: this is also an input to ee_ecdsa_sign
-        p_sig = (unsigned char *)th_malloc(slen); // should be 71, 72 B
+        slen = 0x40; // Note: this is also an input to ee_ecdsa_sign
+        p_sig = (unsigned char *)th_malloc(slen);
         
         if (p_sig == NULL)
         {
@@ -569,15 +569,15 @@ ee_bench_parse(char *p_command)
         p_pri  = th_buffer_address() + 64;
         p_hmac = p_pri + ECC_DSIZE;
         
-        ee_ecdsa_sign(p_hmac, HMAC_SIZE, p_sig, &slen, p_pri, ECC_DSIZE, i);
+        ee_ecdsa_sign(p_hmac, HASH_SIZE, p_sig, &slen, p_pri, ECC_DSIZE, i);
         
         if (g_verify_mode) {
             ee_printmem_be(p_pri, ECC_DSIZE, "m-bench-ecdsa-sign-own-private-");
             ee_printmem_be(p_sig, slen, "m-bench-ecdsa-sign-signature-");
-            ee_printmem_be(p_hmac, HMAC_SIZE, "m-bench-ecdsa-sign-hash-");
+            ee_printmem_be(p_hmac, HASH_SIZE, "m-bench-ecdsa-sign-hash-");
         }
         
-        ee_ecdsa_verify(p_hmac, HMAC_SIZE, p_sig, slen, p_pri, ECC_DSIZE, i);
+        ee_ecdsa_verify(p_hmac, HASH_SIZE, p_sig, slen, p_pri, ECC_DSIZE, i);
         
         th_free(p_sig);
     }
