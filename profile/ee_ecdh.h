@@ -24,7 +24,7 @@ typedef enum
 } ecdh_group_t;
 
 #define HMAC_SIZE 32 // expected HMAC size (using sha256)
-#define ECC_QSIZE 64 // public key size
+#define ECC_QSIZE 65 // public key size (64 bytes plus type)
 #define ECC_DSIZE 32 // private key size
 #define ECDH_SIZE 32 // secret size
 
